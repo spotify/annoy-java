@@ -10,6 +10,19 @@
     <name>annoy-java</name>
     <url>http://maven.apache.org</url>
 
+    <distributionManagement>
+      <repository>
+        <id>central</id>
+        <name>libs-release</name>
+        <url>https://artifactory.spotify.net/artifactory/libs-release-local</url>
+      </repository>
+      <snapshotRepository>
+        <id>snapshots</id>
+        <name>libs-snapshot</name>
+        <url>https://artifactory.spotify.net/artifactory/libs-snapshot-local</url>
+      </snapshotRepository>
+    </distributionManagement>
+
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 	<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>

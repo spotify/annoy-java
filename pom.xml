@@ -3,11 +3,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.spotify</groupId>
-    <artifactId>annoy-java</artifactId>
+    <artifactId>annoy</artifactId>
     <version>0.1-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>annoy-java</name>
+    <name>annoy</name>
     <url>http://maven.apache.org</url>
 
     <distributionManagement>

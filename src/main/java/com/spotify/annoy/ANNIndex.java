@@ -9,7 +9,7 @@ import java.util.*;
 
 public class ANNIndex {
 
-  ANNIndex(int dimension, String filename) throws IOException {
+  public ANNIndex(int dimension, String filename) throws IOException {
     init(dimension);
     load(filename);
   }

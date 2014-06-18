@@ -71,6 +71,27 @@ public class ANNIndex {
     return d;
   }
 
+  public static double norm(float[] u) {
+    float n = 0;
+    for (float x : u) {
+      n += x * x;
+    }
+    return Math.sqrt(n);
+  }
+
+  public static float cosineMargin(float[] u, float[] v) {
+    double d = 0;
+    double un = norm(u), vn = norm(v);
+    for (int i = 0; i < u.length; i++) {
+      d += u[i] * v[i];
+    }
+    return (float) (d/(un*vn));
+  }
+
+  public static float cosineDist(float[] u, float[] v) {
+    return 1.0f - cosineMargin(u, v);
+  }
+
   private class PQEntry implements Comparable<PQEntry> {
     PQEntry(float margin, int node) { this.margin = margin; this.node = node; }
     public float margin;
@@ -107,7 +128,7 @@ public class ANNIndex {
         }
       } else {
         getNodeVector(n, v);
-        float margin = margin(v, queryVector);
+        float margin = cosineMargin(v, queryVector);
         int lChild = nodeSize * annBuf.getInt(n+4);
         int rChild = nodeSize * annBuf.getInt(n+8);
         pq.add(new PQEntry(-margin, lChild));
@@ -118,7 +139,7 @@ public class ANNIndex {
     int i = 0;
     for (int nn : NNs) {
       getItemVector(nn, v);
-      sortedNNs[i++] = new PQEntry(margin(v, queryVector), nn);
+      sortedNNs[i++] = new PQEntry(cosineMargin(v, queryVector), nn);
     }
     Arrays.sort(sortedNNs);
     ArrayList<Integer> result = new ArrayList<Integer>(nResults);
@@ -140,7 +161,7 @@ public class ANNIndex {
     List<Integer> NNs =  annIndex.getNearest(u, 10);
     for (int nn : NNs) {
       annIndex.getItemVector(nn, v);
-      System.out.printf("%d %d %f\n", queryItem, nn, margin(u, v));
+      System.out.printf("%d %d %f\n", queryItem, nn, cosineMargin(u, v));
     }
   }
 

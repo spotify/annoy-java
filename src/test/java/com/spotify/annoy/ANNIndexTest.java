@@ -27,17 +27,11 @@ public class ANNIndexTest {
       // just for fun, print 'em
       for (int nn : NNs) {
         annIndex.getItemVector(nn, v);
-        System.out.printf("%d %f\n", nn, ANNIndex.margin(u, v));
+        System.out.printf("%d %f\n", nn, ANNIndex.cosineMargin(u, v));
       }
     } catch (Exception e) {
       Assert.fail(e.getMessage());
     }
-  }
-
-  private void normalize(float[] vec) {
-    double mag = 1.0 / Math.sqrt(ANNIndex.margin(vec, vec));
-    for (int i = 0; i < vec.length; i++)
-      vec[i] *= mag;
   }
 
   public void benchmarkAccuracy() {
@@ -48,13 +42,11 @@ public class ANNIndexTest {
       float accuracysum = 0;
       for (int i = 0; i < 100000; i += 100) {
         annIndex.getItemVector(i, v);
-        normalize(v);
         List<Integer> NNs = annIndex.getNearest(v, 100);
         float marginsum = 0;
         for (int nn : NNs) {
           annIndex.getItemVector(nn, u);
-          normalize(u);
-          marginsum += ANNIndex.margin(u, v);
+          marginsum += ANNIndex.cosineMargin(u, v);
         }
         accuracysum += marginsum / NNs.size();
       }

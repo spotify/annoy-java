@@ -7,7 +7,12 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.*;
 
-public class ANNIndex {
+public class ANNIndex implements AnnoyIndex {
+
+  public int dimension, minLeafSize, nodeSize;
+  private ArrayList<Integer> roots;
+  private RandomAccessFile memoryMappedFile;
+  private MappedByteBuffer annBuf;
 
   public ANNIndex(int dimension, String filename) throws IOException {
     init(dimension);
@@ -53,12 +58,14 @@ public class ANNIndex {
                       filename, roots.size(), m);
   }
 
+  @Override
   public void getNodeVector(int node, float[] v) {
     for (int i = 0; i < dimension; i++) {
       v[i] = annBuf.getFloat(i*4 + node + 12);
     }
   }
 
+  @Override
   public void getItemVector(int item, float[] v) {
     getNodeVector(item * nodeSize, v);
   }
@@ -104,6 +111,7 @@ public class ANNIndex {
     }
   }
 
+  @Override
   public List<Integer> getNearest(float[] queryVector, int nResults) {
     PriorityQueue<PQEntry> pq = new PriorityQueue<PQEntry>(
             roots.size()*4);
@@ -165,8 +173,4 @@ public class ANNIndex {
     }
   }
 
-  public int dimension, minLeafSize, nodeSize;
-  private ArrayList<Integer> roots;
-  private RandomAccessFile memoryMappedFile;
-  private MappedByteBuffer annBuf;
 }

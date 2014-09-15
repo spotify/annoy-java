@@ -117,7 +117,6 @@ public class ANNIndex implements AnnoyIndex {
             roots.size()*4);
     float[] v = new float[dimension];
     for (int r : roots) {
-      getNodeVector(r, v);
       pq.add(new PQEntry(1e30f, r));
     }
 

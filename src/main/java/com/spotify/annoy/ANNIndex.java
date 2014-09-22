@@ -7,29 +7,39 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.*;
 
+/**
+ * Read-only Approximate Nearest Neighbor Index which queries databases created by annoy.
+ */
 public class ANNIndex implements AnnoyIndex {
 
-  public int dimension, minLeafSize, nodeSize;
+  private int dimension, minLeafSize, nodeSize;
   private ArrayList<Integer> roots;
-  private RandomAccessFile memoryMappedFile;
   private MappedByteBuffer annBuf;
+  private final int kNodeHeaderSize = 12;
+  private final int kFloatSize = 4;
 
-  public ANNIndex(int dimension, String filename) throws IOException {
+  /**
+   * Construct and load an Annoy index.
+   * @param dimension  dimensionality of tree, e.g. 40
+   * @param filename   filename of tree
+   * @throws IOException  if file can't be loaded
+   */
+  public ANNIndex(final int dimension, final String filename) throws IOException {
     init(dimension);
     load(filename);
   }
 
-  private void init(int dimension) {
+  private void init(final int dimension) {
     this.dimension = dimension;
     roots = new ArrayList<Integer>();
     // we can store up to minLeafSize children in leaf nodes (we put them where the separating
     // plane normally goes)
     this.minLeafSize = dimension + 2;
-    this.nodeSize = 12 + 4*dimension;
+    this.nodeSize = kNodeHeaderSize + kFloatSize * dimension;
   }
 
-  private void load(String filename) throws IOException {
-    memoryMappedFile = new RandomAccessFile(filename, "r");
+  private void load(final String filename) throws IOException {
+    RandomAccessFile memoryMappedFile = new RandomAccessFile(filename, "r");
     int fileSize = (int) memoryMappedFile.length();
     System.err.printf("%s: %d bytes\n", filename, fileSize);
 
@@ -59,26 +69,23 @@ public class ANNIndex implements AnnoyIndex {
   }
 
   @Override
-  public void getNodeVector(int node, float[] v) {
+  public final void getNodeVector(final int node, final float[] v) {
     for (int i = 0; i < dimension; i++) {
-      v[i] = annBuf.getFloat(i*4 + node + 12);
+      v[i] = annBuf.getFloat(i * kFloatSize + node + kNodeHeaderSize);
     }
   }
 
   @Override
-  public void getItemVector(int item, float[] v) {
+  public final void getItemVector(final int item, final float[] v) {
     getNodeVector(item * nodeSize, v);
   }
 
-  public static float margin(float[] u, float[] v) {
-    float d = 0;
-    for (int i = 0; i < u.length; i++) {
-      d += u[i] * v[i];
-    }
-    return d;
-  }
-
-  public static double norm(float[] u) {
+  /**
+   * Compute the Euclidean norm of a vector.
+   * @param u  vector
+   * @return   norm
+   */
+  public static double norm(final float[] u) {
     float n = 0;
     for (float x : u) {
       n += x * x;
@@ -86,86 +93,108 @@ public class ANNIndex implements AnnoyIndex {
     return Math.sqrt(n);
   }
 
-  public static float cosineMargin(float[] u, float[] v) {
+  /**
+   * Compute the cosine between two vectors,
+   * which runs between 1 (closest) to -1 (farthest).
+   * @param u  first vector
+   * @param v  second vector
+   * @return   cosine of angle between u and v
+   */
+  public static float cosineMargin(final float[] u, final float[] v) {
     double d = 0;
     double un = norm(u), vn = norm(v);
     for (int i = 0; i < u.length; i++) {
       d += u[i] * v[i];
     }
-    return (float) (d/(un*vn));
+    return (float) (d / (un * vn));
   }
 
-  public static float cosineDist(float[] u, float[] v) {
+  /**
+   * Compute the cosine *distance* between two vectors,
+   * which runs from 0 (closest) to 2 (farthest).
+   * @param u  first vector
+   * @param v  second vector
+   * @return   cosine distance between u and v
+   */
+  public static float cosineDist(final float[] u, final float[] v) {
     return 1.0f - cosineMargin(u, v);
   }
 
   private class PQEntry implements Comparable<PQEntry> {
-    PQEntry(float margin, int node) { this.margin = margin; this.node = node; }
-    public float margin;
-    public int node;
+    PQEntry(final float margin, final int node) { this.margin = margin; this.node = node; }
+    private float margin;
+    private int node;
 
     @Override
-    public int compareTo(PQEntry o) {
+    public int compareTo(final PQEntry o) {
       return Float.compare(o.margin, margin);
     }
   }
 
   @Override
-  public List<Integer> getNearest(float[] queryVector, int nResults) {
-    PriorityQueue<PQEntry> pq = new PriorityQueue<PQEntry>(
-            roots.size()*4);
+  public final List<Integer> getNearest(final float[] queryVector, final int nResults) {
+    PriorityQueue<PQEntry> pq = new PriorityQueue<>(
+            roots.size() * kFloatSize);
+    final float kMaxPriority = 1e30f;
     float[] v = new float[dimension];
     for (int r : roots) {
-      pq.add(new PQEntry(1e30f, r));
+      pq.add(new PQEntry(kMaxPriority, r));
     }
 
-    Set<Integer> NNs = new HashSet<Integer>();
-    while (NNs.size() < roots.size() * nResults && !pq.isEmpty()) {
+    Set<Integer> nearestNeighbors = new HashSet<Integer>();
+    while (nearestNeighbors.size() < roots.size() * nResults && !pq.isEmpty()) {
       PQEntry top = pq.poll();
       int n = top.node;
       int nDescendants = annBuf.getInt(n);
       if (nDescendants == 1) {  // n_descendants
         // FIXME: does this ever happen?
-        NNs.add(n / nodeSize);
+        nearestNeighbors.add(n / nodeSize);
       } else if (nDescendants <= minLeafSize) {
         for (int i = 0; i < nDescendants; i++) {
-          int j = annBuf.getInt(n + 4 + i*4);
-          NNs.add(j);
+          int j = annBuf.getInt(4 + n + i * kFloatSize);
+          nearestNeighbors.add(j);
         }
       } else {
         getNodeVector(n, v);
         float margin = cosineMargin(v, queryVector);
-        int lChild = nodeSize * annBuf.getInt(n+4);
-        int rChild = nodeSize * annBuf.getInt(n+8);
+        int lChild = nodeSize * annBuf.getInt(n + 4);
+        int rChild = nodeSize * annBuf.getInt(n + 8);
         pq.add(new PQEntry(-margin, lChild));
-        pq.add(new PQEntry( margin, rChild));
+        pq.add(new PQEntry(margin, rChild));
       }
     }
-    PQEntry sortedNNs[] = new PQEntry[NNs.size()];
+    PQEntry[] sortedNNs = new PQEntry[nearestNeighbors.size()];
     int i = 0;
-    for (int nn : NNs) {
+    for (int nn : nearestNeighbors) {
       getItemVector(nn, v);
       sortedNNs[i++] = new PQEntry(cosineMargin(v, queryVector), nn);
     }
     Arrays.sort(sortedNNs);
-    ArrayList<Integer> result = new ArrayList<Integer>(nResults);
-    for (i = 0; i < nResults && i < sortedNNs.length; i++)
+    ArrayList<Integer> result = new ArrayList<>(nResults);
+    for (i = 0; i < nResults && i < sortedNNs.length; i++) {
       result.add(sortedNNs[i].node);
+    }
     return result;
   }
 
-  public static void main(String[] args) throws Exception {
+  /**
+   * a test query program.
+   * @param args  tree filename, dimension, and query item id.
+   * @throws IOException  if unable to load index
+   */
+  public static void main(final String[] args) throws IOException {
     ANNIndex annIndex = new ANNIndex(Integer.parseInt(args[0]), args[1]);
     float[] u = new float[annIndex.dimension],
             v = new float[annIndex.dimension];
     int queryItem = Integer.parseInt(args[2]);
     annIndex.getItemVector(queryItem, u);
     System.out.printf("vector[%d]: ", queryItem);
-    for (float x : u)
+    for (float x : u) {
       System.out.printf("%2.2f ", x);
+    }
     System.out.printf("\n");
-    List<Integer> NNs =  annIndex.getNearest(u, 10);
-    for (int nn : NNs) {
+    List<Integer> nearestNeighbors = annIndex.getNearest(u, 10);
+    for (int nn : nearestNeighbors) {
       annIndex.getItemVector(nn, v);
       System.out.printf("%d %d %f\n", queryItem, nn, cosineMargin(u, v));
     }

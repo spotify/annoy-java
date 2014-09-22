@@ -106,8 +106,7 @@ public class ANNIndex implements AnnoyIndex {
 
     @Override
     public int compareTo(PQEntry o) {
-      if (o.margin == margin) return 0;
-      return o.margin > margin ? 1 : -1;
+      return Float.compare(o.margin, margin);
     }
   }
 

@@ -18,6 +18,8 @@ public class ANNIndex implements AnnoyIndex {
   private final int kNodeHeaderSize = 12;
   private final int kFloatSize = 4;
 
+  private static float[] zeros = new float[40];
+
   /**
    * Construct and load an Annoy index.
    * @param dimension  dimensionality of tree, e.g. 40
@@ -146,6 +148,9 @@ public class ANNIndex implements AnnoyIndex {
       PQEntry top = pq.poll();
       int n = top.node;
       int nDescendants = annBuf.getInt(n);
+      getNodeVector(n, v);
+      if(Arrays.equals(v, ANNIndex.zeros))
+          continue;
       if (nDescendants == 1) {  // n_descendants
         // FIXME: does this ever happen?
         nearestNeighbors.add(n / nodeSize);
@@ -155,7 +160,6 @@ public class ANNIndex implements AnnoyIndex {
           nearestNeighbors.add(j);
         }
       } else {
-        getNodeVector(n, v);
         float margin = cosineMargin(v, queryVector);
         int lChild = nodeSize * annBuf.getInt(n + 4);
         int rChild = nodeSize * annBuf.getInt(n + 8);
@@ -163,16 +167,18 @@ public class ANNIndex implements AnnoyIndex {
         pq.add(new PQEntry(margin, rChild));
       }
     }
-    PQEntry[] sortedNNs = new PQEntry[nearestNeighbors.size()];
+    ArrayList<PQEntry> sortedNNs = new ArrayList<PQEntry>();
     int i = 0;
     for (int nn : nearestNeighbors) {
       getItemVector(nn, v);
-      sortedNNs[i++] = new PQEntry(cosineMargin(v, queryVector), nn);
+      if(! Arrays.equals(v, ANNIndex.zeros)) {
+        sortedNNs.add(new PQEntry(cosineMargin(v, queryVector), nn));
+      }
     }
-    Arrays.sort(sortedNNs);
+    Collections.sort(sortedNNs);
     ArrayList<Integer> result = new ArrayList<>(nResults);
-    for (i = 0; i < nResults && i < sortedNNs.length; i++) {
-      result.add(sortedNNs[i].node);
+    for (i = 0; i < nResults && i < sortedNNs.size(); i++) {
+      result.add(sortedNNs.get(i).node);
     }
     return result;
   }

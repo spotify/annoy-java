@@ -13,6 +13,3 @@ Limitations
 
 * annoy-java only implements loading trees built by the Python version of
   annoy; it cannot yet create its own.
-
-* annoy-java only supports angular distances, not Euclidean.
-

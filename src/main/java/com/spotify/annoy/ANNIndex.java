@@ -8,55 +8,73 @@ import java.nio.channels.FileChannel;
 import java.util.*;
 
 /**
- * Read-only Approximate Nearest Neighbor Index which queries databases created by annoy.
+ * Read-only Approximate Nearest Neighbor Index which queries
+ * databases created by annoy.
  */
 public class ANNIndex implements AnnoyIndex {
 
-  private int dimension, minLeafSize, nodeSize;
-  private ArrayList<Integer> roots;
-  private MappedByteBuffer annBuf;
-  private final int kNodeHeaderSize = 12;
-  private final int kFloatSize = 4;
 
-  private static float[] zeros = new float[40];
+  private final ArrayList<Integer> roots;
+  private MappedByteBuffer annBuf;
+
+  private final int DIMENSION, MIN_LEAF_SIZE;
+  private final IndexType INDEX_TYPE;
+  private final int INDEX_TYPE_OFFSET;
+
+  // size of C structs in bytes (initialized in init)
+  private final int K_NODE_HEADER_STYLE;
+  private final int NODE_SIZE;
+
+  private final int INT_SIZE = 4;
+  private final int FLOAT_SIZE = 4;
+
 
   /**
-   * Construct and load an Annoy index.
-   * @param dimension  dimensionality of tree, e.g. 40
-   * @param filename   filename of tree
-   * @throws IOException  if file can't be loaded
+   * Construct and load an Annoy index of a specific type (euclidean / angular).
+   *
+   * @param dimension dimensionality of tree, e.g. 40
+   * @param filename  filename of tree
+   * @param indexType type of index
+   * @throws IOException if file can't be loaded
    */
-  public ANNIndex(final int dimension, final String filename) throws IOException {
-    init(dimension);
+  public ANNIndex(final int dimension,
+                  final String filename,
+                  IndexType indexType) throws IOException {
+    DIMENSION = dimension;
+    INDEX_TYPE = indexType;
+    INDEX_TYPE_OFFSET = (INDEX_TYPE == IndexType.ANGULAR) ? 4 : 8;
+    K_NODE_HEADER_STYLE = (INDEX_TYPE == IndexType.ANGULAR) ? 12 : 16;
+    // we can store up to MIN_LEAF_SIZE children in leaf nodes (we put
+    // them where the separating plane normally goes)
+    this.MIN_LEAF_SIZE = DIMENSION + 2;
+    this.NODE_SIZE = K_NODE_HEADER_STYLE + FLOAT_SIZE * DIMENSION;
+
+    roots = new ArrayList<Integer>();
     load(filename);
   }
 
-  private void init(final int dimension) {
-    this.dimension = dimension;
-    roots = new ArrayList<Integer>();
-    // we can store up to minLeafSize children in leaf nodes (we put them where the separating
-    // plane normally goes)
-    this.minLeafSize = dimension + 2;
-    this.nodeSize = kNodeHeaderSize + kFloatSize * dimension;
+  /**
+   * Construct and load an (Angular) Annoy index.
+   *
+   * @param dimension dimensionality of tree, e.g. 40
+   * @param filename  filename of tree
+   * @throws IOException if file can't be loaded
+   */
+  public ANNIndex(final int dimension,
+                  final String filename) throws IOException {
+    this(dimension, filename, IndexType.ANGULAR);
   }
+
 
   private void load(final String filename) throws IOException {
     RandomAccessFile memoryMappedFile = new RandomAccessFile(filename, "r");
     int fileSize = (int) memoryMappedFile.length();
-    System.err.printf("%s: %d bytes\n", filename, fileSize);
-
     // We only support indexes <4GB as a result of ByteBuffer using an int index
     annBuf = memoryMappedFile.getChannel().map(
             FileChannel.MapMode.READ_ONLY, 0, fileSize);
     annBuf.order(ByteOrder.LITTLE_ENDIAN);
-
-    // an Angular::node contains:
-    // 4   int n_descendants
-    // 8   int children[2]
-    // --  float v[dimension]
-    // 12 + 4*dimension total
     int m = -1;
-    for (int i = fileSize - nodeSize; i >= 0; i -= nodeSize) {
+    for (int i = fileSize - NODE_SIZE; i >= 0; i -= NODE_SIZE) {
       int k = annBuf.getInt(i);  // node[i].n_descendants
       if (m == -1 || k == m) {
         roots.add(i);
@@ -65,80 +83,95 @@ public class ANNIndex implements AnnoyIndex {
         break;
       }
     }
-
-    System.err.printf("%s: found %d roots with degree %d\n",
-                      filename, roots.size(), m);
   }
 
   @Override
-  public final void getNodeVector(final int node, final float[] v) {
-    for (int i = 0; i < dimension; i++) {
-      v[i] = annBuf.getFloat(i * kFloatSize + node + kNodeHeaderSize);
-    }
+  public void getNodeVector(final int nodeOffset, float[] v) {
+    for (int i = 0; i < DIMENSION; i++)
+      v[i] = annBuf.getFloat(nodeOffset + K_NODE_HEADER_STYLE + i * FLOAT_SIZE);
   }
 
   @Override
-  public final void getItemVector(final int item, final float[] v) {
-    getNodeVector(item * nodeSize, v);
+  public void getItemVector(int itemIndex, float[] v) {
+    getNodeVector(itemIndex * NODE_SIZE, v);
   }
 
-  /**
-   * Compute the Euclidean norm of a vector.
-   * @param u  vector
-   * @return   norm
-   */
-  public static double norm(final float[] u) {
+  private float getNodeBias(final int nodeOffset) { // euclidean-only
+    return annBuf.getFloat(nodeOffset + 4);
+  }
+
+  public final float[] getItemVector(final int itemIndex) {
+    return getNodeVector(itemIndex * NODE_SIZE);
+  }
+
+  public float[] getNodeVector(final int nodeOffset) {
+    float[] v = new float[DIMENSION];
+    getNodeVector(nodeOffset, v);
+    return v;
+  }
+
+  private static float norm(final float[] u) {
     float n = 0;
-    for (float x : u) {
+    for (float x : u)
       n += x * x;
-    }
-    return Math.sqrt(n);
+    return (float) Math.sqrt(n);
   }
 
-  /**
-   * Compute the cosine between two vectors,
-   * which runs between 1 (closest) to -1 (farthest).
-   * @param u  first vector
-   * @param v  second vector
-   * @return   cosine of angle between u and v
-   */
+  private static float euclideanDistance(final float[] u, final float[] v) {
+    float[] diff = new float[u.length];
+    for (int i = 0; i < u.length; i++)
+      diff[i] = u[i] - v[i];
+    return norm(diff);
+  }
+
   public static float cosineMargin(final float[] u, final float[] v) {
     double d = 0;
-    double un = norm(u), vn = norm(v);
-    for (int i = 0; i < u.length; i++) {
+    for (int i = 0; i < u.length; i++)
       d += u[i] * v[i];
-    }
-    return (float) (d / (un * vn));
+    return (float) (d / (norm(u) * norm(v)));
   }
 
-  /**
-   * Compute the cosine *distance* between two vectors,
-   * which runs from 0 (closest) to 2 (farthest).
-   * @param u  first vector
-   * @param v  second vector
-   * @return   cosine distance between u and v
-   */
-  public static float cosineDist(final float[] u, final float[] v) {
-    return 1.0f - cosineMargin(u, v);
+  public static float euclideanMargin(final float[] u,
+                                      final float[] v,
+                                      final float bias) {
+    float d = bias;
+    for (int i = 0; i < u.length; i++)
+      d += u[i] * v[i];
+    return d;
   }
 
   private class PQEntry implements Comparable<PQEntry> {
-    PQEntry(final float margin, final int node) { this.margin = margin; this.node = node; }
+
+    PQEntry(final float margin, final int nodeOffset) {
+      this.margin = margin;
+      this.nodeOffset = nodeOffset;
+    }
+
     private float margin;
-    private int node;
+    private int nodeOffset;
 
     @Override
     public int compareTo(final PQEntry o) {
       return Float.compare(o.margin, margin);
     }
+
+  }
+
+  private static boolean isZeroVec(float[] v) {
+    for (int i = 0; i < v.length; i++)
+      if (v[i] != 0)
+        return false;
+    return true;
   }
 
   @Override
-  public final List<Integer> getNearest(final float[] queryVector, final int nResults) {
+  public final List<Integer> getNearest(final float[] queryVector,
+                                        final int nResults) {
+
     PriorityQueue<PQEntry> pq = new PriorityQueue<>(
-            roots.size() * kFloatSize);
+            roots.size() * FLOAT_SIZE);
     final float kMaxPriority = 1e30f;
-    float[] v = new float[dimension];
+
     for (int r : roots) {
       pq.add(new PQEntry(kMaxPriority, r));
     }
@@ -146,63 +179,90 @@ public class ANNIndex implements AnnoyIndex {
     Set<Integer> nearestNeighbors = new HashSet<Integer>();
     while (nearestNeighbors.size() < roots.size() * nResults && !pq.isEmpty()) {
       PQEntry top = pq.poll();
-      int n = top.node;
-      int nDescendants = annBuf.getInt(n);
-      getNodeVector(n, v);
-      if(Arrays.equals(v, ANNIndex.zeros))
-          continue;
+      int topNodeOffset = top.nodeOffset;
+      int nDescendants = annBuf.getInt(topNodeOffset);
+      float[] v = getNodeVector(topNodeOffset);
+      if (isZeroVec(v))
+        continue;
       if (nDescendants == 1) {  // n_descendants
         // FIXME: does this ever happen?
-        nearestNeighbors.add(n / nodeSize);
-      } else if (nDescendants <= minLeafSize) {
+        nearestNeighbors.add(topNodeOffset / NODE_SIZE);
+      } else if (nDescendants <= MIN_LEAF_SIZE) {
         for (int i = 0; i < nDescendants; i++) {
-          int j = annBuf.getInt(4 + n + i * kFloatSize);
+          int j = annBuf.getInt(topNodeOffset +
+                  INDEX_TYPE_OFFSET +
+                  i * INT_SIZE);
           nearestNeighbors.add(j);
         }
       } else {
-        float margin = cosineMargin(v, queryVector);
-        int lChild = nodeSize * annBuf.getInt(n + 4);
-        int rChild = nodeSize * annBuf.getInt(n + 8);
+        float margin = (INDEX_TYPE == IndexType.ANGULAR) ?
+                cosineMargin(v, queryVector) :
+                euclideanMargin(v, queryVector, getNodeBias(topNodeOffset));
+        int childrenMemOffset = topNodeOffset + INDEX_TYPE_OFFSET;
+        int lChild = NODE_SIZE * annBuf.getInt(childrenMemOffset);
+        int rChild = NODE_SIZE * annBuf.getInt(childrenMemOffset + 4);
         pq.add(new PQEntry(-margin, lChild));
         pq.add(new PQEntry(margin, rChild));
       }
     }
+
     ArrayList<PQEntry> sortedNNs = new ArrayList<PQEntry>();
     int i = 0;
     for (int nn : nearestNeighbors) {
-      getItemVector(nn, v);
-      if(! Arrays.equals(v, ANNIndex.zeros)) {
-        sortedNNs.add(new PQEntry(cosineMargin(v, queryVector), nn));
+      float[] v = getItemVector(nn);
+      if (!isZeroVec(v)) {
+        sortedNNs.add(
+                new PQEntry((INDEX_TYPE == IndexType.ANGULAR) ?
+                        cosineMargin(v, queryVector) :
+                        -euclideanDistance(v, queryVector),
+                        nn));
       }
     }
     Collections.sort(sortedNNs);
+
     ArrayList<Integer> result = new ArrayList<>(nResults);
     for (i = 0; i < nResults && i < sortedNNs.size(); i++) {
-      result.add(sortedNNs.get(i).node);
+      result.add(sortedNNs.get(i).nodeOffset);
     }
     return result;
   }
 
+
   /**
    * a test query program.
-   * @param args  tree filename, dimension, and query item id.
-   * @throws IOException  if unable to load index
+   *
+   * @param args tree filename, dimension, indextype ("angular" or
+   *             "euclidean" and query item id.
+   * @throws IOException if unable to load index
    */
   public static void main(final String[] args) throws IOException {
-    ANNIndex annIndex = new ANNIndex(Integer.parseInt(args[0]), args[1]);
-    float[] u = new float[annIndex.dimension],
-            v = new float[annIndex.dimension];
-    int queryItem = Integer.parseInt(args[2]);
-    annIndex.getItemVector(queryItem, u);
+
+    String indexPath = args[0];                 // 0
+    int dimension = Integer.parseInt(args[1]);  // 1
+    IndexType indexType = null;                 // 2
+    if (args[2].toLowerCase().equals("angular"))
+      indexType = IndexType.ANGULAR;
+    else if (args[2].toLowerCase().equals("euclidean"))
+      indexType = IndexType.EUCLIDEAN;
+    else throw new RuntimeException("wrong index type specified");
+    int queryItem = Integer.parseInt(args[3]);  // 3
+
+    ANNIndex annIndex = new ANNIndex(dimension, indexPath, indexType);
+
+    float[] u = annIndex.getItemVector(queryItem);
     System.out.printf("vector[%d]: ", queryItem);
     for (float x : u) {
       System.out.printf("%2.2f ", x);
     }
     System.out.printf("\n");
+
     List<Integer> nearestNeighbors = annIndex.getNearest(u, 10);
     for (int nn : nearestNeighbors) {
-      annIndex.getItemVector(nn, v);
-      System.out.printf("%d %d %f\n", queryItem, nn, cosineMargin(u, v));
+      float[] v = annIndex.getItemVector(nn);
+      System.out.printf("%d %d %f\n",
+              queryItem, nn,
+              (indexType == IndexType.ANGULAR) ?
+                      cosineMargin(u, v) : euclideanDistance(u, v));
     }
   }
 

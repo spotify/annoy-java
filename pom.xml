@@ -4,7 +4,7 @@
 
   <groupId>com.spotify</groupId>
   <artifactId>annoy</artifactId>
-  <version>0.2.5</version>
+  <version>0.2.6-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <name>annoy</name>
@@ -21,7 +21,7 @@
     <url>git@github.com:spotify/annoy-java.git</url>
     <connection>scm:git:git@github.com:spotify/annoy-java.git</connection>
     <developerConnection>scm:git:git@github.com:spotify/annoy-java.git</developerConnection>
-    <tag>v0.2.5</tag>
+    <tag>HEAD</tag>
   </scm>
 
   <dependencies>

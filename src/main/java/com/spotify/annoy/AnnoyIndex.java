@@ -7,18 +7,29 @@ import java.util.List;
  */
 public interface AnnoyIndex {
   /**
-   * Get the vector for a given node in the tree.
-   * @param node  node index in the ANN tree
-   * @param v     output vector; overwritten.
+   * Get the vector for a given node's memory offset in the tree.
+   * @param nodeOffset  node index in the ANN tree
+   * @param v           output vector; overwritten.
+   * @deprecated this should not be a public method
    */
-  void getNodeVector(int node, float[] v);
+  @Deprecated
+  void getNodeVector(int nodeOffset, float[] v);
 
   /**
    * Get the vector for a given item in the tree.
-   * @param item  item id
-   * @param v     output vector; overwritten.
+   * @param itemIndex  item id
+   * @param v          output vector; overwritten.
+   * @deprecated use getItemVector(itemIndex)'s return value
    */
-  void getItemVector(int item, float[] v);
+  @Deprecated
+  void getItemVector(int itemIndex, float[] v);
+
+  /**
+   * Get the vector for a given item in the tree.
+   * @param itemIndex  item id
+   * @return item vector
+   */
+  float[] getItemVector(int itemIndex);
 
   /**
    * Look up nearest neighbors in the tree.

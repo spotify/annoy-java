@@ -182,16 +182,18 @@ public class ANNIndex implements AnnoyIndex {
       int topNodeOffset = top.nodeOffset;
       int nDescendants = annBuf.getInt(topNodeOffset);
       float[] v = getNodeVector(topNodeOffset);
-      if (isZeroVec(v))
-        continue;
       if (nDescendants == 1) {  // n_descendants
         // FIXME: does this ever happen?
+        if (isZeroVec(v))
+          continue;
         nearestNeighbors.add(topNodeOffset / NODE_SIZE);
       } else if (nDescendants <= MIN_LEAF_SIZE) {
         for (int i = 0; i < nDescendants; i++) {
           int j = annBuf.getInt(topNodeOffset +
                   INDEX_TYPE_OFFSET +
                   i * INT_SIZE);
+          if (isZeroVec(getNodeVector(j * NODE_SIZE)))
+            continue;
           nearestNeighbors.add(j);
         }
       } else {

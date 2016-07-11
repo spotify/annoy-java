@@ -1,11 +1,12 @@
 package com.spotify.annoy;
 
+import java.io.Closeable;
 import java.util.List;
 
 /**
  * AnnoyIndex interface, provided to aid with dependency injection in tests.
  */
-public interface AnnoyIndex {
+public interface AnnoyIndex extends Closeable{
   /**
    * Get the vector for a given node's memory offset in the tree.
    * @param nodeOffset  node index in the ANN tree

@@ -13,7 +13,6 @@ import java.util.*;
  */
 public class ANNIndex implements AnnoyIndex {
 
-
   private final ArrayList<Integer> roots;
   private MappedByteBuffer annBuf;
 
@@ -27,6 +26,7 @@ public class ANNIndex implements AnnoyIndex {
 
   private final int INT_SIZE = 4;
   private final int FLOAT_SIZE = 4;
+  private int FILE_SIZE;
   private RandomAccessFile memoryMappedFile;
 
 
@@ -69,13 +69,18 @@ public class ANNIndex implements AnnoyIndex {
 
   private void load(final String filename) throws IOException {
     memoryMappedFile = new RandomAccessFile(filename, "r");
-    int fileSize = (int) memoryMappedFile.length();
+    FILE_SIZE = (int) memoryMappedFile.length();
+
+    if (FILE_SIZE % DIMENSION != 0) {
+      throw new RuntimeException("ANNIndex initiated with wrong dimension size");
+    }
+
     // We only support indexes <4GB as a result of ByteBuffer using an int index
     annBuf = memoryMappedFile.getChannel().map(
-            FileChannel.MapMode.READ_ONLY, 0, fileSize);
+            FileChannel.MapMode.READ_ONLY, 0, FILE_SIZE);
     annBuf.order(ByteOrder.LITTLE_ENDIAN);
     int m = -1;
-    for (int i = fileSize - NODE_SIZE; i >= 0; i -= NODE_SIZE) {
+    for (int i = FILE_SIZE - NODE_SIZE; i >= 0; i -= NODE_SIZE) {
       int k = annBuf.getInt(i);  // node[i].n_descendants
       if (m == -1 || k == m) {
         roots.add(i);
@@ -186,7 +191,6 @@ public class ANNIndex implements AnnoyIndex {
   @Override
   public final List<Integer> getNearest(final float[] queryVector,
                                         final int nResults) {
-
     PriorityQueue<PQEntry> pq = new PriorityQueue<>(
             roots.size() * FLOAT_SIZE);
     final float kMaxPriority = 1e30f;
@@ -228,7 +232,6 @@ public class ANNIndex implements AnnoyIndex {
     }
 
     ArrayList<PQEntry> sortedNNs = new ArrayList<PQEntry>();
-    int i = 0;
     for (int nn : nearestNeighbors) {
       float[] v = getItemVector(nn);
       if (!isZeroVec(v)) {
@@ -242,7 +245,7 @@ public class ANNIndex implements AnnoyIndex {
     Collections.sort(sortedNNs);
 
     ArrayList<Integer> result = new ArrayList<>(nResults);
-    for (i = 0; i < nResults && i < sortedNNs.size(); i++) {
+    for (int i = 0; i < nResults && i < sortedNNs.size(); i++) {
       result.add(sortedNNs.get(i).nodeOffset);
     }
     return result;
@@ -265,19 +268,24 @@ public class ANNIndex implements AnnoyIndex {
       indexType = IndexType.ANGULAR;
     else if (args[2].toLowerCase().equals("euclidean"))
       indexType = IndexType.EUCLIDEAN;
-    else throw new RuntimeException("wrong index type specified");
+    else
+      throw new RuntimeException("wrong index type specified");
     int queryItem = Integer.parseInt(args[3]);  // 3
 
     ANNIndex annIndex = new ANNIndex(dimension, indexPath, indexType);
 
+    // input vector
     float[] u = annIndex.getItemVector(queryItem);
     System.out.printf("vector[%d]: ", queryItem);
+
     for (float x : u) {
       System.out.printf("%2.2f ", x);
     }
+
     System.out.printf("\n");
 
     List<Integer> nearestNeighbors = annIndex.getNearest(u, 10);
+
     for (int nn : nearestNeighbors) {
       float[] v = annIndex.getItemVector(nn);
       System.out.printf("%d %d %f\n",

@@ -26,7 +26,6 @@ public class ANNIndex implements AnnoyIndex {
 
   private final int INT_SIZE = 4;
   private final int FLOAT_SIZE = 4;
-  private int FILE_SIZE;
   private RandomAccessFile memoryMappedFile;
 
 
@@ -69,18 +68,18 @@ public class ANNIndex implements AnnoyIndex {
 
   private void load(final String filename) throws IOException {
     memoryMappedFile = new RandomAccessFile(filename, "r");
-    FILE_SIZE = (int) memoryMappedFile.length();
+    int fileSize = (int) memoryMappedFile.length();
 
-    if (FILE_SIZE % DIMENSION != 0) {
+    if (fileSize % DIMENSION != 0) {
       throw new RuntimeException("ANNIndex initiated with wrong dimension size");
     }
 
     // We only support indexes <4GB as a result of ByteBuffer using an int index
     annBuf = memoryMappedFile.getChannel().map(
-            FileChannel.MapMode.READ_ONLY, 0, FILE_SIZE);
+            FileChannel.MapMode.READ_ONLY, 0, fileSize);
     annBuf.order(ByteOrder.LITTLE_ENDIAN);
     int m = -1;
-    for (int i = FILE_SIZE - NODE_SIZE; i >= 0; i -= NODE_SIZE) {
+    for (int i = fileSize - NODE_SIZE; i >= 0; i -= NODE_SIZE) {
       int k = annBuf.getInt(i);  // node[i].n_descendants
       if (m == -1 || k == m) {
         roots.add(i);

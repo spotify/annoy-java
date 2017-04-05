@@ -70,7 +70,7 @@ public class ANNIndex implements AnnoyIndex {
     memoryMappedFile = new RandomAccessFile(filename, "r");
     int fileSize = (int) memoryMappedFile.length();
 
-    if (fileSize % DIMENSION != 0) {
+    if (fileSize % NODE_SIZE != 0) {
       throw new RuntimeException("ANNIndex initiated with wrong dimension size");
     }
 

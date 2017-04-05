@@ -190,6 +190,10 @@ public class ANNIndex implements AnnoyIndex {
   @Override
   public final List<Integer> getNearest(final float[] queryVector,
                                         final int nResults) {
+    if (queryVector.length != DIMENSION) {
+      throw new RuntimeException(String.format("queryVector must be size of %d, but was %d",
+              DIMENSION, queryVector.length));
+    }
     PriorityQueue<PQEntry> pq = new PriorityQueue<>(
             roots.size() * FLOAT_SIZE);
     final float kMaxPriority = 1e30f;

@@ -14,7 +14,7 @@ public interface AnnoyIndex extends Closeable{
    * @deprecated this should not be a public method
    */
   @Deprecated
-  void getNodeVector(int nodeOffset, float[] v);
+  void getNodeVector(long nodeOffset, float[] v);
 
   /**
    * Get the vector for a given item in the tree.

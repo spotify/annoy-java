@@ -14,8 +14,8 @@ import java.util.*;
 public class ANNIndex implements AnnoyIndex {
 
 
-  private final ArrayList<Integer> roots;
-  private MappedByteBuffer annBuf;
+  private final ArrayList<Long> roots;
+  private Map<Integer, MappedByteBuffer> buffers = new HashMap<>();
 
   private final int DIMENSION, MIN_LEAF_SIZE;
   private final IndexType INDEX_TYPE;
@@ -27,6 +27,7 @@ public class ANNIndex implements AnnoyIndex {
 
   private final int INT_SIZE = 4;
   private final int FLOAT_SIZE = 4;
+  private final int BLOCK_SIZE;
   private RandomAccessFile memoryMappedFile;
 
 
@@ -49,8 +50,9 @@ public class ANNIndex implements AnnoyIndex {
     // them where the separating plane normally goes)
     this.MIN_LEAF_SIZE = DIMENSION + 2;
     this.NODE_SIZE = K_NODE_HEADER_STYLE + FLOAT_SIZE * DIMENSION;
+    this.BLOCK_SIZE = (int) Math.floor(Integer.MAX_VALUE / NODE_SIZE);
 
-    roots = new ArrayList<Integer>();
+    roots = new ArrayList<>();
     load(filename);
   }
 
@@ -69,27 +71,56 @@ public class ANNIndex implements AnnoyIndex {
 
   private void load(final String filename) throws IOException {
     memoryMappedFile = new RandomAccessFile(filename, "r");
-    int fileSize = (int) memoryMappedFile.length();
-    // We only support indexes <4GB as a result of ByteBuffer using an int index
-    annBuf = memoryMappedFile.getChannel().map(
-            FileChannel.MapMode.READ_ONLY, 0, fileSize);
-    annBuf.order(ByteOrder.LITTLE_ENDIAN);
+    long fileSize = memoryMappedFile.length();
+    int buffIndex = (int) Math.ceil(((double) fileSize) / BLOCK_SIZE) - 1;
+    int rest = (int) (fileSize % BLOCK_SIZE);
+    int blockSize = (rest > 0 ? rest : BLOCK_SIZE);
+    long position = Math.max(0, fileSize - blockSize);
+
+    boolean process = true;
     int m = -1;
-    for (int i = fileSize - NODE_SIZE; i >= 0; i -= NODE_SIZE) {
-      int k = annBuf.getInt(i);  // node[i].n_descendants
-      if (m == -1 || k == m) {
-        roots.add(i);
-        m = k;
-      } else {
-        break;
+    long index = fileSize;
+    while(blockSize > 0) {
+      MappedByteBuffer annBuf = memoryMappedFile.getChannel().map(
+              FileChannel.MapMode.READ_ONLY, position, blockSize);
+      annBuf.order(ByteOrder.LITTLE_ENDIAN);
+
+      buffers.put(buffIndex--, annBuf);
+
+      for (int i = blockSize - NODE_SIZE; process && i >= 0; i -= NODE_SIZE) {
+        index -= NODE_SIZE;
+        int k = annBuf.getInt(i);  // node[i].n_descendants
+        if (m == -1 || k == m) {
+          roots.add(index);
+          m = k;
+        } else {
+          process = false;
+          break;
+        }
       }
+      blockSize = (int) Math.min(BLOCK_SIZE, position);
+      position = position - blockSize;
     }
   }
 
+  private float getFloatInAnnBuf(long pos) {
+    int b = (int) Math.floor(((double) pos) / BLOCK_SIZE);
+    int f = (int) (pos - (b * BLOCK_SIZE));
+    return buffers.get(b).getFloat(f);
+  }
+
+  private int getIntInAnnBuf(long pos) {
+    int b = (int) Math.floor(((double) pos) / BLOCK_SIZE);
+    int f = (int) (pos - (b * BLOCK_SIZE));
+    return buffers.get(b).getInt(f);
+  }
+
   @Override
-  public void getNodeVector(final int nodeOffset, float[] v) {
-    for (int i = 0; i < DIMENSION; i++)
-      v[i] = annBuf.getFloat(nodeOffset + K_NODE_HEADER_STYLE + i * FLOAT_SIZE);
+  public void getNodeVector(final long nodeOffset, float[] v) {
+    for (int i = 0; i < DIMENSION; i++) {
+      long offSet = nodeOffset + K_NODE_HEADER_STYLE + i * FLOAT_SIZE;
+      v[i] = getFloatInAnnBuf(offSet);
+    }
   }
 
   @Override
@@ -97,15 +128,15 @@ public class ANNIndex implements AnnoyIndex {
     getNodeVector(itemIndex * NODE_SIZE, v);
   }
 
-  private float getNodeBias(final int nodeOffset) { // euclidean-only
-    return annBuf.getFloat(nodeOffset + 4);
+  private float getNodeBias(final long nodeOffset) { // euclidean-only
+    return getFloatInAnnBuf(nodeOffset + 4);
   }
 
   public final float[] getItemVector(final int itemIndex) {
     return getNodeVector(itemIndex * NODE_SIZE);
   }
 
-  public float[] getNodeVector(final int nodeOffset) {
+  public float[] getNodeVector(final long nodeOffset) {
     float[] v = new float[DIMENSION];
     getNodeVector(nodeOffset, v);
     return v;
@@ -161,13 +192,13 @@ public class ANNIndex implements AnnoyIndex {
 
   private class PQEntry implements Comparable<PQEntry> {
 
-    PQEntry(final float margin, final int nodeOffset) {
+    PQEntry(final float margin, final long nodeOffset) {
       this.margin = margin;
       this.nodeOffset = nodeOffset;
     }
 
     private float margin;
-    private int nodeOffset;
+    private long nodeOffset;
 
     @Override
     public int compareTo(final PQEntry o) {
@@ -191,24 +222,24 @@ public class ANNIndex implements AnnoyIndex {
             roots.size() * FLOAT_SIZE);
     final float kMaxPriority = 1e30f;
 
-    for (int r : roots) {
+    for (long r : roots) {
       pq.add(new PQEntry(kMaxPriority, r));
     }
 
     Set<Integer> nearestNeighbors = new HashSet<Integer>();
     while (nearestNeighbors.size() < roots.size() * nResults && !pq.isEmpty()) {
       PQEntry top = pq.poll();
-      int topNodeOffset = top.nodeOffset;
-      int nDescendants = annBuf.getInt(topNodeOffset);
+      long topNodeOffset = top.nodeOffset;
+      int nDescendants = getIntInAnnBuf(topNodeOffset);
       float[] v = getNodeVector(topNodeOffset);
       if (nDescendants == 1) {  // n_descendants
         // FIXME: does this ever happen?
         if (isZeroVec(v))
           continue;
-        nearestNeighbors.add(topNodeOffset / NODE_SIZE);
+        nearestNeighbors.add((int) (topNodeOffset / NODE_SIZE));
       } else if (nDescendants <= MIN_LEAF_SIZE) {
         for (int i = 0; i < nDescendants; i++) {
-          int j = annBuf.getInt(topNodeOffset +
+          int j = getIntInAnnBuf(topNodeOffset +
                   INDEX_TYPE_OFFSET +
                   i * INT_SIZE);
           if (isZeroVec(getNodeVector(j * NODE_SIZE)))
@@ -219,9 +250,9 @@ public class ANNIndex implements AnnoyIndex {
         float margin = (INDEX_TYPE == IndexType.ANGULAR) ?
                 cosineMargin(v, queryVector) :
                 euclideanMargin(v, queryVector, getNodeBias(topNodeOffset));
-        int childrenMemOffset = topNodeOffset + INDEX_TYPE_OFFSET;
-        int lChild = NODE_SIZE * annBuf.getInt(childrenMemOffset);
-        int rChild = NODE_SIZE * annBuf.getInt(childrenMemOffset + 4);
+        long childrenMemOffset = topNodeOffset + INDEX_TYPE_OFFSET;
+        long lChild = NODE_SIZE * getIntInAnnBuf(childrenMemOffset);
+        long rChild = NODE_SIZE * getIntInAnnBuf(childrenMemOffset + 4);
         pq.add(new PQEntry(-margin, lChild));
         pq.add(new PQEntry(margin, rChild));
       }
@@ -243,7 +274,7 @@ public class ANNIndex implements AnnoyIndex {
 
     ArrayList<Integer> result = new ArrayList<>(nResults);
     for (i = 0; i < nResults && i < sortedNNs.size(); i++) {
-      result.add(sortedNNs.get(i).nodeOffset);
+      result.add((int) sortedNNs.get(i).nodeOffset);
     }
     return result;
   }

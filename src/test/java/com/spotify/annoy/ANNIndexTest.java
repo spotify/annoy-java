@@ -15,8 +15,16 @@ import java.util.TreeSet;
 @RunWith(JUnit4.class)
 public class ANNIndexTest {
 
-  private void testIndex(ANNIndex index, BufferedReader reader, boolean verbose)
+  private static final String DIR = "src/test/resources";
+
+  private void testIndex(IndexType type, int blockSize, boolean verbose)
           throws IOException {
+
+    String ts = type.toString().toLowerCase();
+    ANNIndex index = new ANNIndex(8,
+            String.format("%s/points.%s.annoy", DIR, ts), type, blockSize);
+    BufferedReader reader = new BufferedReader(new FileReader(
+            String.format("%s/points.%s.ann.txt", DIR, ts)));
 
     while (true) {
 
@@ -55,25 +63,45 @@ public class ANNIndexTest {
   @Test
   /**
    Make sure that the NNs retrieved by the Java version match the
-   ones pre-computed by the C++ version of the Angular index.
+   ones pre-computed by the C++ version of the Angular index
+   using the default block size (for files up to 2GB).
    */
   public void testAngular() throws IOException {
-    ANNIndex index = new ANNIndex(8, "src/test/resources/points.angular.annoy", IndexType.ANGULAR);
-    BufferedReader reader = new BufferedReader(new FileReader("src/test/resources/points.angular.ann.txt"));
-    testIndex(index, reader, false);
+    testIndex(IndexType.ANGULAR, 0, false);
   }
 
 
   @Test
   /**
    Make sure that the NNs retrieved by the Java version match the
-   ones pre-computed by the C++ version of the Euclidean index.
+   ones pre-computed by the C++ version of the Euclidean index
+   using the default block size (for files up to 2GB).
    */
   public void testEuclidean() throws IOException {
-    ANNIndex index = new ANNIndex(8, "src/test/resources/points.euclidean.annoy", IndexType.EUCLIDEAN);
-    BufferedReader reader = new BufferedReader(new FileReader("src/test/resources/points.euclidean.ann.txt"));
-    testIndex(index, reader, false);
+    testIndex(IndexType.EUCLIDEAN, 0, false);
   }
 
+  @Test
+  /**
+   Make sure that the NNs retrieved by the Java version match the
+   ones pre-computed by the C++ version of the Angular index
+   simulating files larger than 2GB.
+   */
+  public void testAngularBlocks() throws IOException {
+    testIndex(IndexType.ANGULAR, 10, false);
+    testIndex(IndexType.ANGULAR, 1, false);
+  }
+
+
+  @Test
+  /**
+   Make sure that the NNs retrieved by the Java version match the
+   ones pre-computed by the C++ version of the Euclidean index
+   simulating files larger than 2GB.
+   */
+  public void testEuclideanMultipleBlocks() throws IOException {
+    testIndex(IndexType.EUCLIDEAN, 10, false);
+    testIndex(IndexType.EUCLIDEAN, 1, false);
+  }
 
 }

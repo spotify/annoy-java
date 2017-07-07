@@ -42,18 +42,7 @@ public class ANNIndex implements AnnoyIndex {
   public ANNIndex(final int dimension,
                   final String filename,
                   IndexType indexType) throws IOException {
-    DIMENSION = dimension;
-    INDEX_TYPE = indexType;
-    INDEX_TYPE_OFFSET = (INDEX_TYPE == IndexType.ANGULAR) ? 4 : 8;
-    K_NODE_HEADER_STYLE = (INDEX_TYPE == IndexType.ANGULAR) ? 12 : 16;
-    // we can store up to MIN_LEAF_SIZE children in leaf nodes (we put
-    // them where the separating plane normally goes)
-    this.MIN_LEAF_SIZE = DIMENSION + 2;
-    this.NODE_SIZE = K_NODE_HEADER_STYLE + FLOAT_SIZE * DIMENSION;
-    this.BLOCK_SIZE = (int) Math.floor(Integer.MAX_VALUE / NODE_SIZE);
-
-    roots = new ArrayList<>();
-    load(filename);
+    this(dimension, filename, indexType, 0);
   }
 
   /**
@@ -68,6 +57,24 @@ public class ANNIndex implements AnnoyIndex {
     this(dimension, filename, IndexType.ANGULAR);
   }
 
+  ANNIndex(final int dimension,
+                  final String filename,
+                  IndexType indexType,
+                  final int blockSize) throws IOException {
+    DIMENSION = dimension;
+    INDEX_TYPE = indexType;
+    INDEX_TYPE_OFFSET = (INDEX_TYPE == IndexType.ANGULAR) ? 4 : 8;
+    K_NODE_HEADER_STYLE = (INDEX_TYPE == IndexType.ANGULAR) ? 12 : 16;
+    // we can store up to MIN_LEAF_SIZE children in leaf nodes (we put
+    // them where the separating plane normally goes)
+    this.MIN_LEAF_SIZE = DIMENSION + 2;
+    this.NODE_SIZE = K_NODE_HEADER_STYLE + FLOAT_SIZE * DIMENSION;
+    this.BLOCK_SIZE = blockSize == 0 ?
+            Integer.MAX_VALUE / NODE_SIZE : blockSize * NODE_SIZE;
+
+    roots = new ArrayList<>();
+    load(filename);
+  }
 
   private void load(final String filename) throws IOException {
     memoryMappedFile = new RandomAccessFile(filename, "r");

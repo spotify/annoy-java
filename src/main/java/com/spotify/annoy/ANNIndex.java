@@ -15,7 +15,7 @@ public class ANNIndex implements AnnoyIndex {
 
 
   private final ArrayList<Long> roots;
-  private Map<Integer, MappedByteBuffer> buffers = new HashMap<>();
+  private MappedByteBuffer[] buffers;
 
   private final int DIMENSION, MIN_LEAF_SIZE;
   private final IndexType INDEX_TYPE;
@@ -72,20 +72,25 @@ public class ANNIndex implements AnnoyIndex {
   private void load(final String filename) throws IOException {
     memoryMappedFile = new RandomAccessFile(filename, "r");
     long fileSize = memoryMappedFile.length();
-    int buffIndex = (int) Math.ceil(((double) fileSize) / BLOCK_SIZE) - 1;
+    if (fileSize == 0L) {
+      throw new IOException("Index is a 0-byte file?");
+    }
+
+    int buffIndex =  (int) (fileSize - 1) / BLOCK_SIZE;
     int rest = (int) (fileSize % BLOCK_SIZE);
     int blockSize = (rest > 0 ? rest : BLOCK_SIZE);
     long position = Math.max(0, fileSize - blockSize);
 
+    buffers = new MappedByteBuffer[buffIndex + 1];
     boolean process = true;
     int m = -1;
     long index = fileSize;
-    while(blockSize > 0) {
+    while(position >= 0) {
       MappedByteBuffer annBuf = memoryMappedFile.getChannel().map(
               FileChannel.MapMode.READ_ONLY, position, blockSize);
       annBuf.order(ByteOrder.LITTLE_ENDIAN);
 
-      buffers.put(buffIndex--, annBuf);
+      buffers[buffIndex--] = annBuf;
 
       for (int i = blockSize - NODE_SIZE; process && i >= 0; i -= NODE_SIZE) {
         index -= NODE_SIZE;
@@ -95,31 +100,31 @@ public class ANNIndex implements AnnoyIndex {
           m = k;
         } else {
           process = false;
-          break;
         }
       }
-      blockSize = (int) Math.min(BLOCK_SIZE, position);
+      blockSize = BLOCK_SIZE;
       position = position - blockSize;
     }
   }
 
   private float getFloatInAnnBuf(long pos) {
-    int b = (int) Math.floor(((double) pos) / BLOCK_SIZE);
-    int f = (int) (pos - (b * BLOCK_SIZE));
-    return buffers.get(b).getFloat(f);
+    int b = (int) pos / BLOCK_SIZE;
+    int f = (int) pos % BLOCK_SIZE;
+    return buffers[b].getFloat(f);
   }
 
   private int getIntInAnnBuf(long pos) {
-    int b = (int) Math.floor(((double) pos) / BLOCK_SIZE);
-    int f = (int) (pos - (b * BLOCK_SIZE));
-    return buffers.get(b).getInt(f);
+    int b = (int) pos / BLOCK_SIZE;
+    int i = (int) pos % BLOCK_SIZE;
+    return buffers[b].getInt(i);
   }
 
   @Override
   public void getNodeVector(final long nodeOffset, float[] v) {
+    MappedByteBuffer nodeBuf = buffers[(int) nodeOffset / BLOCK_SIZE];
+    int offset = (int) (nodeOffset % BLOCK_SIZE) + K_NODE_HEADER_STYLE;
     for (int i = 0; i < DIMENSION; i++) {
-      long offSet = nodeOffset + K_NODE_HEADER_STYLE + i * FLOAT_SIZE;
-      v[i] = getFloatInAnnBuf(offSet);
+      v[i] = nodeBuf.getFloat(offset + i * FLOAT_SIZE);
     }
   }
 

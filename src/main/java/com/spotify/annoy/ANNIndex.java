@@ -86,7 +86,7 @@ public class ANNIndex implements AnnoyIndex {
     int buffIndex =  (int) (fileSize - 1) / BLOCK_SIZE;
     int rest = (int) (fileSize % BLOCK_SIZE);
     int blockSize = (rest > 0 ? rest : BLOCK_SIZE);
-    long position = Math.max(0, fileSize - blockSize);
+    long position = fileSize - blockSize;
 
     buffers = new MappedByteBuffer[buffIndex + 1];
     boolean process = true;
@@ -110,7 +110,7 @@ public class ANNIndex implements AnnoyIndex {
         }
       }
       blockSize = BLOCK_SIZE;
-      position = position - blockSize;
+      position -= blockSize;
     }
   }
 

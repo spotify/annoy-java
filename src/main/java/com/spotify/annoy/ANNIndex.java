@@ -83,7 +83,7 @@ public class ANNIndex implements AnnoyIndex {
       throw new IOException("Index is a 0-byte file?");
     }
 
-    int buffIndex =  (int) (fileSize - 1) / BLOCK_SIZE;
+    int buffIndex =  (int) ((fileSize - 1) / BLOCK_SIZE);
     int rest = (int) (fileSize % BLOCK_SIZE);
     int blockSize = (rest > 0 ? rest : BLOCK_SIZE);
     long position = fileSize - blockSize;

@@ -14,8 +14,8 @@ import java.util.*;
 public class ANNIndex implements AnnoyIndex {
 
 
-  private final ArrayList<Integer> roots;
-  private MappedByteBuffer annBuf;
+  private final ArrayList<Long> roots;
+  private MappedByteBuffer[] buffers;
 
   private final int DIMENSION, MIN_LEAF_SIZE;
   private final IndexType INDEX_TYPE;
@@ -27,6 +27,7 @@ public class ANNIndex implements AnnoyIndex {
 
   private final int INT_SIZE = 4;
   private final int FLOAT_SIZE = 4;
+  private final int BLOCK_SIZE;
   private RandomAccessFile memoryMappedFile;
 
 
@@ -41,17 +42,7 @@ public class ANNIndex implements AnnoyIndex {
   public ANNIndex(final int dimension,
                   final String filename,
                   IndexType indexType) throws IOException {
-    DIMENSION = dimension;
-    INDEX_TYPE = indexType;
-    INDEX_TYPE_OFFSET = (INDEX_TYPE == IndexType.ANGULAR) ? 4 : 8;
-    K_NODE_HEADER_STYLE = (INDEX_TYPE == IndexType.ANGULAR) ? 12 : 16;
-    // we can store up to MIN_LEAF_SIZE children in leaf nodes (we put
-    // them where the separating plane normally goes)
-    this.MIN_LEAF_SIZE = DIMENSION + 2;
-    this.NODE_SIZE = K_NODE_HEADER_STYLE + FLOAT_SIZE * DIMENSION;
-
-    roots = new ArrayList<Integer>();
-    load(filename);
+    this(dimension, filename, indexType, 0);
   }
 
   /**
@@ -66,30 +57,82 @@ public class ANNIndex implements AnnoyIndex {
     this(dimension, filename, IndexType.ANGULAR);
   }
 
+  ANNIndex(final int dimension,
+                  final String filename,
+                  IndexType indexType,
+                  final int blockSize) throws IOException {
+    DIMENSION = dimension;
+    INDEX_TYPE = indexType;
+    INDEX_TYPE_OFFSET = (INDEX_TYPE == IndexType.ANGULAR) ? 4 : 8;
+    K_NODE_HEADER_STYLE = (INDEX_TYPE == IndexType.ANGULAR) ? 12 : 16;
+    // we can store up to MIN_LEAF_SIZE children in leaf nodes (we put
+    // them where the separating plane normally goes)
+    this.MIN_LEAF_SIZE = DIMENSION + 2;
+    this.NODE_SIZE = K_NODE_HEADER_STYLE + FLOAT_SIZE * DIMENSION;
+    this.BLOCK_SIZE = blockSize == 0 ?
+            Integer.MAX_VALUE / NODE_SIZE : blockSize * NODE_SIZE;
+
+    roots = new ArrayList<>();
+    load(filename);
+  }
 
   private void load(final String filename) throws IOException {
     memoryMappedFile = new RandomAccessFile(filename, "r");
-    int fileSize = (int) memoryMappedFile.length();
-    // We only support indexes <4GB as a result of ByteBuffer using an int index
-    annBuf = memoryMappedFile.getChannel().map(
-            FileChannel.MapMode.READ_ONLY, 0, fileSize);
-    annBuf.order(ByteOrder.LITTLE_ENDIAN);
+    long fileSize = memoryMappedFile.length();
+    if (fileSize == 0L) {
+      throw new IOException("Index is a 0-byte file?");
+    }
+
+    int buffIndex =  (int) (fileSize - 1) / BLOCK_SIZE;
+    int rest = (int) (fileSize % BLOCK_SIZE);
+    int blockSize = (rest > 0 ? rest : BLOCK_SIZE);
+    long position = fileSize - blockSize;
+
+    buffers = new MappedByteBuffer[buffIndex + 1];
+    boolean process = true;
     int m = -1;
-    for (int i = fileSize - NODE_SIZE; i >= 0; i -= NODE_SIZE) {
-      int k = annBuf.getInt(i);  // node[i].n_descendants
-      if (m == -1 || k == m) {
-        roots.add(i);
-        m = k;
-      } else {
-        break;
+    long index = fileSize;
+    while(position >= 0) {
+      MappedByteBuffer annBuf = memoryMappedFile.getChannel().map(
+              FileChannel.MapMode.READ_ONLY, position, blockSize);
+      annBuf.order(ByteOrder.LITTLE_ENDIAN);
+
+      buffers[buffIndex--] = annBuf;
+
+      for (int i = blockSize - NODE_SIZE; process && i >= 0; i -= NODE_SIZE) {
+        index -= NODE_SIZE;
+        int k = annBuf.getInt(i);  // node[i].n_descendants
+        if (m == -1 || k == m) {
+          roots.add(index);
+          m = k;
+        } else {
+          process = false;
+        }
       }
+      blockSize = BLOCK_SIZE;
+      position -= blockSize;
     }
   }
 
+  private float getFloatInAnnBuf(long pos) {
+    int b = (int) pos / BLOCK_SIZE;
+    int f = (int) pos % BLOCK_SIZE;
+    return buffers[b].getFloat(f);
+  }
+
+  private int getIntInAnnBuf(long pos) {
+    int b = (int) pos / BLOCK_SIZE;
+    int i = (int) pos % BLOCK_SIZE;
+    return buffers[b].getInt(i);
+  }
+
   @Override
-  public void getNodeVector(final int nodeOffset, float[] v) {
-    for (int i = 0; i < DIMENSION; i++)
-      v[i] = annBuf.getFloat(nodeOffset + K_NODE_HEADER_STYLE + i * FLOAT_SIZE);
+  public void getNodeVector(final long nodeOffset, float[] v) {
+    MappedByteBuffer nodeBuf = buffers[(int) nodeOffset / BLOCK_SIZE];
+    int offset = (int) (nodeOffset % BLOCK_SIZE) + K_NODE_HEADER_STYLE;
+    for (int i = 0; i < DIMENSION; i++) {
+      v[i] = nodeBuf.getFloat(offset + i * FLOAT_SIZE);
+    }
   }
 
   @Override
@@ -97,15 +140,15 @@ public class ANNIndex implements AnnoyIndex {
     getNodeVector(itemIndex * NODE_SIZE, v);
   }
 
-  private float getNodeBias(final int nodeOffset) { // euclidean-only
-    return annBuf.getFloat(nodeOffset + 4);
+  private float getNodeBias(final long nodeOffset) { // euclidean-only
+    return getFloatInAnnBuf(nodeOffset + 4);
   }
 
   public final float[] getItemVector(final int itemIndex) {
     return getNodeVector(itemIndex * NODE_SIZE);
   }
 
-  public float[] getNodeVector(final int nodeOffset) {
+  public float[] getNodeVector(final long nodeOffset) {
     float[] v = new float[DIMENSION];
     getNodeVector(nodeOffset, v);
     return v;
@@ -161,13 +204,13 @@ public class ANNIndex implements AnnoyIndex {
 
   private class PQEntry implements Comparable<PQEntry> {
 
-    PQEntry(final float margin, final int nodeOffset) {
+    PQEntry(final float margin, final long nodeOffset) {
       this.margin = margin;
       this.nodeOffset = nodeOffset;
     }
 
     private float margin;
-    private int nodeOffset;
+    private long nodeOffset;
 
     @Override
     public int compareTo(final PQEntry o) {
@@ -191,24 +234,24 @@ public class ANNIndex implements AnnoyIndex {
             roots.size() * FLOAT_SIZE);
     final float kMaxPriority = 1e30f;
 
-    for (int r : roots) {
+    for (long r : roots) {
       pq.add(new PQEntry(kMaxPriority, r));
     }
 
     Set<Integer> nearestNeighbors = new HashSet<Integer>();
     while (nearestNeighbors.size() < roots.size() * nResults && !pq.isEmpty()) {
       PQEntry top = pq.poll();
-      int topNodeOffset = top.nodeOffset;
-      int nDescendants = annBuf.getInt(topNodeOffset);
+      long topNodeOffset = top.nodeOffset;
+      int nDescendants = getIntInAnnBuf(topNodeOffset);
       float[] v = getNodeVector(topNodeOffset);
       if (nDescendants == 1) {  // n_descendants
         // FIXME: does this ever happen?
         if (isZeroVec(v))
           continue;
-        nearestNeighbors.add(topNodeOffset / NODE_SIZE);
+        nearestNeighbors.add((int) (topNodeOffset / NODE_SIZE));
       } else if (nDescendants <= MIN_LEAF_SIZE) {
         for (int i = 0; i < nDescendants; i++) {
-          int j = annBuf.getInt(topNodeOffset +
+          int j = getIntInAnnBuf(topNodeOffset +
                   INDEX_TYPE_OFFSET +
                   i * INT_SIZE);
           if (isZeroVec(getNodeVector(j * NODE_SIZE)))
@@ -219,9 +262,9 @@ public class ANNIndex implements AnnoyIndex {
         float margin = (INDEX_TYPE == IndexType.ANGULAR) ?
                 cosineMargin(v, queryVector) :
                 euclideanMargin(v, queryVector, getNodeBias(topNodeOffset));
-        int childrenMemOffset = topNodeOffset + INDEX_TYPE_OFFSET;
-        int lChild = NODE_SIZE * annBuf.getInt(childrenMemOffset);
-        int rChild = NODE_SIZE * annBuf.getInt(childrenMemOffset + 4);
+        long childrenMemOffset = topNodeOffset + INDEX_TYPE_OFFSET;
+        long lChild = NODE_SIZE * getIntInAnnBuf(childrenMemOffset);
+        long rChild = NODE_SIZE * getIntInAnnBuf(childrenMemOffset + 4);
         pq.add(new PQEntry(-margin, lChild));
         pq.add(new PQEntry(margin, rChild));
       }
@@ -243,7 +286,7 @@ public class ANNIndex implements AnnoyIndex {
 
     ArrayList<Integer> result = new ArrayList<>(nResults);
     for (i = 0; i < nResults && i < sortedNNs.size(); i++) {
-      result.add(sortedNNs.get(i).nodeOffset);
+      result.add((int) sortedNNs.get(i).nodeOffset);
     }
     return result;
   }

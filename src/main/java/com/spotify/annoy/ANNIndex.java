@@ -27,6 +27,7 @@ public class ANNIndex implements AnnoyIndex {
 
   private final int INT_SIZE = 4;
   private final int FLOAT_SIZE = 4;
+  private final int MAX_NODES_IN_BUFFER;
   private final int BLOCK_SIZE;
   private RandomAccessFile memoryMappedFile;
 
@@ -69,9 +70,9 @@ public class ANNIndex implements AnnoyIndex {
     // them where the separating plane normally goes)
     this.MIN_LEAF_SIZE = DIMENSION + 2;
     this.NODE_SIZE = K_NODE_HEADER_STYLE + FLOAT_SIZE * DIMENSION;
-    this.BLOCK_SIZE = blockSize == 0 ?
+    this.MAX_NODES_IN_BUFFER = blockSize == 0 ?
             Integer.MAX_VALUE / NODE_SIZE : blockSize * NODE_SIZE;
-
+    BLOCK_SIZE = this.MAX_NODES_IN_BUFFER * NODE_SIZE;
     roots = new ArrayList<>();
     load(filename);
   }
@@ -83,7 +84,8 @@ public class ANNIndex implements AnnoyIndex {
       throw new IOException("Index is a 0-byte file?");
     }
 
-    int buffIndex =  (int) ((fileSize - 1) / BLOCK_SIZE);
+    int numNodes = (int) (fileSize / NODE_SIZE);
+    int buffIndex =  (numNodes - 1) / MAX_NODES_IN_BUFFER;
     int rest = (int) (fileSize % BLOCK_SIZE);
     int blockSize = (rest > 0 ? rest : BLOCK_SIZE);
     long position = fileSize - blockSize;
@@ -115,21 +117,21 @@ public class ANNIndex implements AnnoyIndex {
   }
 
   private float getFloatInAnnBuf(long pos) {
-    int b = (int) pos / BLOCK_SIZE;
-    int f = (int) pos % BLOCK_SIZE;
+    int b = (int) (pos / BLOCK_SIZE);
+    int f = (int) (pos % BLOCK_SIZE);
     return buffers[b].getFloat(f);
   }
 
   private int getIntInAnnBuf(long pos) {
-    int b = (int) pos / BLOCK_SIZE;
-    int i = (int) pos % BLOCK_SIZE;
+    int b = (int) (pos / BLOCK_SIZE);
+    int i = (int) (pos % BLOCK_SIZE);
     return buffers[b].getInt(i);
   }
 
   @Override
   public void getNodeVector(final long nodeOffset, float[] v) {
-    MappedByteBuffer nodeBuf = buffers[(int) nodeOffset / BLOCK_SIZE];
-    int offset = (int) (nodeOffset % BLOCK_SIZE) + K_NODE_HEADER_STYLE;
+    MappedByteBuffer nodeBuf = buffers[(int) (nodeOffset / BLOCK_SIZE)];
+    int offset = (int) ((nodeOffset % BLOCK_SIZE) + K_NODE_HEADER_STYLE);
     for (int i = 0; i < DIMENSION; i++) {
       v[i] = nodeBuf.getFloat(offset + i * FLOAT_SIZE);
     }
@@ -145,7 +147,7 @@ public class ANNIndex implements AnnoyIndex {
   }
 
   public final float[] getItemVector(final int itemIndex) {
-    return getNodeVector(itemIndex * NODE_SIZE);
+    return getNodeVector(((long) itemIndex) * NODE_SIZE);
   }
 
   public float[] getNodeVector(final long nodeOffset) {
@@ -254,7 +256,7 @@ public class ANNIndex implements AnnoyIndex {
           int j = getIntInAnnBuf(topNodeOffset +
                   INDEX_TYPE_OFFSET +
                   i * INT_SIZE);
-          if (isZeroVec(getNodeVector(j * NODE_SIZE)))
+          if (isZeroVec(getNodeVector(((long) j) * NODE_SIZE)))
             continue;
           nearestNeighbors.add(j);
         }

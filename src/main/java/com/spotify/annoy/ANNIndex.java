@@ -265,8 +265,8 @@ public class ANNIndex implements AnnoyIndex {
                 cosineMargin(v, queryVector) :
                 euclideanMargin(v, queryVector, getNodeBias(topNodeOffset));
         long childrenMemOffset = topNodeOffset + INDEX_TYPE_OFFSET;
-        long lChild = NODE_SIZE * getIntInAnnBuf(childrenMemOffset);
-        long rChild = NODE_SIZE * getIntInAnnBuf(childrenMemOffset + 4);
+        long lChild = ((long) NODE_SIZE) * getIntInAnnBuf(childrenMemOffset);
+        long rChild = ((long) NODE_SIZE) * getIntInAnnBuf(childrenMemOffset + 4);
         pq.add(new PQEntry(-margin, lChild));
         pq.add(new PQEntry(margin, rChild));
       }

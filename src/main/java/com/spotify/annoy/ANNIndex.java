@@ -23,7 +23,7 @@ public class ANNIndex implements AnnoyIndex {
 
   // size of C structs in bytes (initialized in init)
   private final int K_NODE_HEADER_STYLE;
-  private final int NODE_SIZE;
+  private final long NODE_SIZE;
 
   private final int INT_SIZE = 4;
   private final int FLOAT_SIZE = 4;
@@ -70,9 +70,9 @@ public class ANNIndex implements AnnoyIndex {
     // them where the separating plane normally goes)
     this.MIN_LEAF_SIZE = DIMENSION + 2;
     this.NODE_SIZE = K_NODE_HEADER_STYLE + FLOAT_SIZE * DIMENSION;
-    this.MAX_NODES_IN_BUFFER = blockSize == 0 ?
-            Integer.MAX_VALUE / NODE_SIZE : blockSize * NODE_SIZE;
-    BLOCK_SIZE = this.MAX_NODES_IN_BUFFER * NODE_SIZE;
+    this.MAX_NODES_IN_BUFFER = (int) (blockSize == 0 ?
+            Integer.MAX_VALUE / NODE_SIZE : blockSize * NODE_SIZE);
+    BLOCK_SIZE = (int) (this.MAX_NODES_IN_BUFFER * NODE_SIZE);
     roots = new ArrayList<>();
     load(filename);
   }
@@ -101,7 +101,7 @@ public class ANNIndex implements AnnoyIndex {
 
       buffers[buffIndex--] = annBuf;
 
-      for (int i = blockSize - NODE_SIZE; process && i >= 0; i -= NODE_SIZE) {
+      for (int i = blockSize - (int) NODE_SIZE; process && i >= 0; i -= NODE_SIZE) {
         index -= NODE_SIZE;
         int k = annBuf.getInt(i);  // node[i].n_descendants
         if (m == -1 || k == m) {
@@ -147,7 +147,7 @@ public class ANNIndex implements AnnoyIndex {
   }
 
   public final float[] getItemVector(final int itemIndex) {
-    return getNodeVector(((long) itemIndex) * NODE_SIZE);
+    return getNodeVector(itemIndex * NODE_SIZE);
   }
 
   public float[] getNodeVector(final long nodeOffset) {
@@ -256,7 +256,7 @@ public class ANNIndex implements AnnoyIndex {
           int j = getIntInAnnBuf(topNodeOffset +
                   INDEX_TYPE_OFFSET +
                   i * INT_SIZE);
-          if (isZeroVec(getNodeVector(((long) j) * NODE_SIZE)))
+          if (isZeroVec(getNodeVector(j * NODE_SIZE)))
             continue;
           nearestNeighbors.add(j);
         }
@@ -265,8 +265,8 @@ public class ANNIndex implements AnnoyIndex {
                 cosineMargin(v, queryVector) :
                 euclideanMargin(v, queryVector, getNodeBias(topNodeOffset));
         long childrenMemOffset = topNodeOffset + INDEX_TYPE_OFFSET;
-        long lChild = ((long) NODE_SIZE) * getIntInAnnBuf(childrenMemOffset);
-        long rChild = ((long) NODE_SIZE) * getIntInAnnBuf(childrenMemOffset + 4);
+        long lChild = NODE_SIZE * getIntInAnnBuf(childrenMemOffset);
+        long rChild = NODE_SIZE * getIntInAnnBuf(childrenMemOffset + 4);
         pq.add(new PQEntry(-margin, lChild));
         pq.add(new PQEntry(margin, rChild));
       }

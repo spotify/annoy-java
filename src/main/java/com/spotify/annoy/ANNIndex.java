@@ -88,37 +88,37 @@ public class ANNIndex implements AnnoyIndex {
     int buffIndex =  (numNodes - 1) / MAX_NODES_IN_BUFFER;
     int rest = (int) (fileSize % BLOCK_SIZE);
     int blockSize = (rest > 0 ? rest : BLOCK_SIZE);
-    // If everything fits into buffer, just need to check file size is a multiple of BLOCK_SIZE;
-    // Otherwise, the file size should be a multiple of blockSize.
-    if (buffIndex == 0 && rest != 0
-            || fileSize % blockSize != 0) {
-      throw new RuntimeException("ANNIndex initiated with wrong dimension size");
-    }
-    long position = fileSize - blockSize;
+    // Two valid relations between dimension and file size:
+    // 1) if everything fits into buffer, file size should be a multiple of NODE_SIZE (rest == 0);
+    // 2) otherwise, both rest of (file_size - rest) should be a multiple of NODE_SIZE.
+    if (rest == 0 || rest % NODE_SIZE == 0 && (fileSize - rest) % NODE_SIZE == 0) {
+      long position = fileSize - blockSize;
+      buffers = new MappedByteBuffer[buffIndex + 1];
+      boolean process = true;
+      int m = -1;
+      long index = fileSize;
+      while (position >= 0) {
+        MappedByteBuffer annBuf = memoryMappedFile.getChannel().map(
+                FileChannel.MapMode.READ_ONLY, position, blockSize);
+        annBuf.order(ByteOrder.LITTLE_ENDIAN);
 
-    buffers = new MappedByteBuffer[buffIndex + 1];
-    boolean process = true;
-    int m = -1;
-    long index = fileSize;
-    while(position >= 0) {
-      MappedByteBuffer annBuf = memoryMappedFile.getChannel().map(
-              FileChannel.MapMode.READ_ONLY, position, blockSize);
-      annBuf.order(ByteOrder.LITTLE_ENDIAN);
+        buffers[buffIndex--] = annBuf;
 
-      buffers[buffIndex--] = annBuf;
-
-      for (int i = blockSize - (int) NODE_SIZE; process && i >= 0; i -= NODE_SIZE) {
-        index -= NODE_SIZE;
-        int k = annBuf.getInt(i);  // node[i].n_descendants
-        if (m == -1 || k == m) {
-          roots.add(index);
-          m = k;
-        } else {
-          process = false;
+        for (int i = blockSize - (int) NODE_SIZE; process && i >= 0; i -= NODE_SIZE) {
+          index -= NODE_SIZE;
+          int k = annBuf.getInt(i);  // node[i].n_descendants
+          if (m == -1 || k == m) {
+            roots.add(index);
+            m = k;
+          } else {
+            process = false;
+          }
         }
+        blockSize = BLOCK_SIZE;
+        position -= blockSize;
       }
-      blockSize = BLOCK_SIZE;
-      position -= blockSize;
+    } else {
+      throw new RuntimeException("ANNIndex initiated with wrong dimension size");
     }
   }
 

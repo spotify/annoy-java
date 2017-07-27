@@ -108,7 +108,7 @@ public class ANNIndexTest {
   /**
    Make sure wrong dimension size used to init ANNIndex will throw RuntimeException.
    */
-  public void testLoadFile() throws IOException {
+  public void testLoadFileWithWrongDimension() throws IOException {
     ANNIndex index = new ANNIndex(7, "src/test/resources/points.euclidean.annoy");
   }
 

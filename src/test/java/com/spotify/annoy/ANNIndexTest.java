@@ -104,4 +104,21 @@ public class ANNIndexTest {
     testIndex(IndexType.EUCLIDEAN, 1, false);
   }
 
+  @Test(expected = RuntimeException.class)
+  /**
+   Make sure wrong dimension size used to init ANNIndex will throw RuntimeException.
+   */
+  public void testLoadFileWithWrongDimension() throws IOException {
+    ANNIndex index = new ANNIndex(7, "src/test/resources/points.euclidean.annoy");
+  }
+
+  @Test(expected = RuntimeException.class)
+  /**
+   Make sure wrong dimension size throw exception in getNearest()
+   */
+  public void testGetNearesWithWrongDim() throws IOException {
+    ANNIndex index = new ANNIndex(8, "src/test/resources/points.angular.annoy", IndexType.ANGULAR);
+    float[] u = {0f, 1.0f, 0.2f, 0.1f, 0f, 1.0f, 0.2f, 0.1f, 1f};
+    index.getNearest(u, 10);
+  }
 }

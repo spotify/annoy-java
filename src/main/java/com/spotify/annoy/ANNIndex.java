@@ -88,13 +88,18 @@ public class ANNIndex implements AnnoyIndex {
     int buffIndex =  (numNodes - 1) / MAX_NODES_IN_BUFFER;
     int rest = (int) (fileSize % BLOCK_SIZE);
     int blockSize = (rest > 0 ? rest : BLOCK_SIZE);
+    // Two valid relations between dimension and file size:
+    // 1) rest % NODE_SIZE == 0 makes sure either everything fits into buffer or rest is a multiple of NODE_SIZE;
+    // 2) (file_size - rest) % NODE_SIZE == 0 makes sure everything else is a multiple of NODE_SIZE.
+    if (rest % NODE_SIZE != 0 || (fileSize - rest) % NODE_SIZE != 0) {
+      throw new RuntimeException("ANNIndex initiated with wrong dimension size");
+    }
     long position = fileSize - blockSize;
-
     buffers = new MappedByteBuffer[buffIndex + 1];
     boolean process = true;
     int m = -1;
     long index = fileSize;
-    while(position >= 0) {
+    while (position >= 0) {
       MappedByteBuffer annBuf = memoryMappedFile.getChannel().map(
               FileChannel.MapMode.READ_ONLY, position, blockSize);
       annBuf.order(ByteOrder.LITTLE_ENDIAN);
@@ -232,6 +237,11 @@ public class ANNIndex implements AnnoyIndex {
   public final List<Integer> getNearest(final float[] queryVector,
                                         final int nResults) {
 
+    if (queryVector.length != DIMENSION) {
+      throw new RuntimeException(String.format("queryVector must be size of %d, but was %d",
+              DIMENSION, queryVector.length));
+    }
+
     PriorityQueue<PQEntry> pq = new PriorityQueue<>(
             roots.size() * FLOAT_SIZE);
     final float kMaxPriority = 1e30f;
@@ -273,7 +283,6 @@ public class ANNIndex implements AnnoyIndex {
     }
 
     ArrayList<PQEntry> sortedNNs = new ArrayList<PQEntry>();
-    int i = 0;
     for (int nn : nearestNeighbors) {
       float[] v = getItemVector(nn);
       if (!isZeroVec(v)) {
@@ -287,7 +296,7 @@ public class ANNIndex implements AnnoyIndex {
     Collections.sort(sortedNNs);
 
     ArrayList<Integer> result = new ArrayList<>(nResults);
-    for (i = 0; i < nResults && i < sortedNNs.size(); i++) {
+    for (int i = 0; i < nResults && i < sortedNNs.size(); i++) {
       result.add((int) sortedNNs.get(i).nodeOffset);
     }
     return result;
@@ -315,6 +324,7 @@ public class ANNIndex implements AnnoyIndex {
 
     ANNIndex annIndex = new ANNIndex(dimension, indexPath, indexType);
 
+    // input vector
     float[] u = annIndex.getItemVector(queryItem);
     System.out.printf("vector[%d]: ", queryItem);
     for (float x : u) {

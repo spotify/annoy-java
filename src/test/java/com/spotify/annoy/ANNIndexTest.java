@@ -70,6 +70,16 @@ public class ANNIndexTest {
     testIndex(IndexType.ANGULAR, 0, false);
   }
 
+  @Test
+  /**
+   Make sure that the NNs retrieved by the Java version match the
+   ones pre-computed by the C++ version of the Angular index
+   using the default block size (for files up to 2GB).
+   */
+  public void testDot() throws IOException {
+    testIndex(IndexType.DOT, 0, false);
+  }
+
 
   @Test
   /**
@@ -90,6 +100,17 @@ public class ANNIndexTest {
   public void testAngularBlocks() throws IOException {
     testIndex(IndexType.ANGULAR, 10, false);
     testIndex(IndexType.ANGULAR, 1, false);
+  }
+
+  @Test
+  /**
+   Make sure that the NNs retrieved by the Java version match the
+   ones pre-computed by the C++ version of the Angular index
+   simulating files larger than 2GB.
+   */
+  public void testDotBlocks() throws IOException {
+    testIndex(IndexType.DOT, 10, false);
+    testIndex(IndexType.DOT, 1, false);
   }
 
 

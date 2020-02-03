@@ -12,4 +12,5 @@ def do(indextype):
             print >> out, '%s\t%s' % (q_index, ','.join([str(n) for n in nns]))
 
 do('angular')
+do('dot')
 do('euclidean')

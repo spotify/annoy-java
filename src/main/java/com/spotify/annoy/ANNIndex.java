@@ -221,7 +221,7 @@ public class ANNIndex implements AnnoyIndex {
     memoryMappedFile.close();
   }
 
-  private class PQEntry implements Comparable<PQEntry> {
+  public class PQEntry implements Comparable<PQEntry> {
 
     PQEntry(final float margin, final long nodeOffset) {
       this.margin = margin;
@@ -249,6 +249,17 @@ public class ANNIndex implements AnnoyIndex {
   public final List<Integer> getNearest(final float[] queryVector,
                                         final int nResults) {
 
+    ArrayList<PQEntry> sortedNNs = getNearestPqEntries(queryVector, nResults);
+
+    ArrayList<Integer> result = new ArrayList<>(nResults);
+    for (int i = 0; i < nResults && i < sortedNNs.size(); i++) {
+      result.add((int) sortedNNs.get(i).nodeOffset);
+    }
+    return result;
+  }
+
+  @Override
+  public ArrayList<PQEntry> getNearestPqEntries(final float[] queryVector, final int nResults ) {
     if (queryVector.length != DIMENSION) {
       throw new RuntimeException(String.format("queryVector must be size of %d, but was %d",
               DIMENSION, queryVector.length));
@@ -305,14 +316,8 @@ public class ANNIndex implements AnnoyIndex {
       }
     }
     Collections.sort(sortedNNs);
-
-    ArrayList<Integer> result = new ArrayList<>(nResults);
-    for (int i = 0; i < nResults && i < sortedNNs.size(); i++) {
-      result.add((int) sortedNNs.get(i).nodeOffset);
-    }
-    return result;
+    return sortedNNs;
   }
-
 
   /**
    * a test query program.

@@ -39,4 +39,12 @@ public interface AnnoyIndex extends Closeable{
    * @return             list of items in descending nearness to query point
    */
   List<Integer> getNearest(float[] queryVector, int nResults);
+
+  /**
+   * Look up nearest PqEntries in the tree.
+   * @param queryVector  find nearest neighbors for this query point
+   * @param nResults     number of items to return
+   * @return             list of PqEntries in descending nearness to query point, containing margin and node offset
+   */
+  List<ANNIndex.PQEntry> getNearestPqEntries(float[] queryVector, int nResults);
 }

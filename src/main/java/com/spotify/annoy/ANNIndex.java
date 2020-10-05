@@ -257,6 +257,11 @@ public class ANNIndex implements AnnoyIndex {
   @Override
   public final List<Integer> getNearest(final float[] queryVector,
                                         final int nResults) {
+    return getNearest(queryVector, nResults, -1);
+  }
+
+  public final List<Integer> getNearest(final float[] queryVector,
+                                        final int nResults, int searchK) {
 
     List<PQEntry> resultingPQEntries = getNearestPqEntries(queryVector, nResults);
 
@@ -282,8 +287,12 @@ public class ANNIndex implements AnnoyIndex {
       pq.add(new PQEntry(kMaxPriority, r));
     }
 
+    if (searchK == -1) {
+      searchK = roots.size() * nResults;
+    }
+
     Set<Integer> nearestNeighbors = new HashSet<Integer>();
-    while (nearestNeighbors.size() < roots.size() * nResults && !pq.isEmpty()) {
+    while (nearestNeighbors.size() < searchK && !pq.isEmpty()) {
       PQEntry top = pq.poll();
       long topNodeOffset = top.nodeOffset;
       int nDescendants = getIntInAnnBuf(topNodeOffset);

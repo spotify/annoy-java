@@ -272,7 +272,11 @@ public class ANNIndex implements AnnoyIndex {
     return result;
   }
 
-  @Override
+   @Override
+   public final List<PQEntry> getNearestPqEntries( final float[] queryVector, final int nResults ) {
+      return getNearestPqEntries(queryVector, nResults, -1);
+   }
+  
   public List<PQEntry> getNearestPqEntries(final float[] queryVector, final int nResults, int searchK ) {
     if (queryVector.length != DIMENSION) {
       throw new RuntimeException(String.format("queryVector must be size of %d, but was %d",

@@ -221,7 +221,7 @@ public class ANNIndex implements AnnoyIndex {
     memoryMappedFile.close();
   }
 
-  private class PQEntry implements Comparable<PQEntry> {
+  public class PQEntry implements Comparable<PQEntry> {
 
     PQEntry(final float margin, final long nodeOffset) {
       this.margin = margin;
@@ -248,7 +248,23 @@ public class ANNIndex implements AnnoyIndex {
   @Override
   public final List<Integer> getNearest(final float[] queryVector,
                                         final int nResults) {
+    return getNearest(queryVector, nResults, -1);
+  }
 
+  public final List<Integer> getNearest(final float[] queryVector,
+                                        final int nResults, int searchK) {
+
+    ArrayList<PQEntry> sortedNNs = getNearestPqEntries(queryVector, nResults);
+
+    ArrayList<Integer> result = new ArrayList<>(nResults);
+    for (int i = 0; i < nResults && i < sortedNNs.size(); i++) {
+      result.add((int) sortedNNs.get(i).nodeOffset);
+    }
+    return result;
+  }
+
+  @Override
+  public ArrayList<PQEntry> getNearestPqEntries(final float[] queryVector, final int nResults ) {
     if (queryVector.length != DIMENSION) {
       throw new RuntimeException(String.format("queryVector must be size of %d, but was %d",
               DIMENSION, queryVector.length));
@@ -262,8 +278,12 @@ public class ANNIndex implements AnnoyIndex {
       pq.add(new PQEntry(kMaxPriority, r));
     }
 
+    if (searchK == -1) {
+      searchK = roots.size() * nResults;
+    }
+
     Set<Integer> nearestNeighbors = new HashSet<Integer>();
-    while (nearestNeighbors.size() < roots.size() * nResults && !pq.isEmpty()) {
+    while (nearestNeighbors.size() < searchK && !pq.isEmpty()) {
       PQEntry top = pq.poll();
       long topNodeOffset = top.nodeOffset;
       int nDescendants = getIntInAnnBuf(topNodeOffset);
@@ -305,14 +325,8 @@ public class ANNIndex implements AnnoyIndex {
       }
     }
     Collections.sort(sortedNNs);
-
-    ArrayList<Integer> result = new ArrayList<>(nResults);
-    for (int i = 0; i < nResults && i < sortedNNs.size(); i++) {
-      result.add((int) sortedNNs.get(i).nodeOffset);
-    }
-    return result;
+    return sortedNNs;
   }
-
 
   /**
    * a test query program.
